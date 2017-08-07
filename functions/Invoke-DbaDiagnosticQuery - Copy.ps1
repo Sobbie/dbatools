@@ -22,10 +22,10 @@ Allows alternative Windows or SQL login credentials to be used
 Alternate path for the diagnostic scripts
 
 .PARAMETER Database
-The database(s) to process. If unspecified, all databases except master, model, msdb, and tempdb will be processed
+The database(s) to process. If unspecified, all databases will be processed
 
 .PARAMETER ExcludeDatabase
-The database(s) to exclude.  This already includes the master, model, msdb, and tempdb databases so they are not required in the exclude list.
+The database(s) to exclude
 	
 .PARAMETER UseSelectionHelper
 Provides a gridview with all the queries to choose from and will run the selection made by the user on the Sql Server instance specified. 
