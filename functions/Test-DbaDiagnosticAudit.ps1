@@ -1,5 +1,5 @@
 function Test-DbaDiagnosticAudit {
-	<#
+		<#
 		.SYNOPSIS
 			Outputs the Noun found on the server.
 
@@ -51,17 +51,30 @@ function Test-DbaDiagnosticAudit {
 		$SqlCredential
 	)
 
-    process {
-        foreach ($Instance in $SqlInstance) {
-			$Results 		= Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values','Process Memory'
+	PROCESS {
+		$ErrorResults = @()
+		foreach ($Instance in $SqlInstance) {
+			
+			$Results 		= Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values','Process Memory','SQL Server NUMA Info','System Memory'
 			$ConfigResults	= ( $Results | Where-Object { $_.name -eq 'Configuration Values' } ).Result
-			$ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result  
+			$ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result
+			$SysMemResults	= ( $Results | Where-Object { $_.Name -eq 'System Memory' } ).Result
+
+			If ( $ProcResults.large_page_allocations_kb -gt 0 -OR $ProcResults.locked_page_allocations_kb -gt 0 ) {
+				$MemoryPressure = $TRUE
+				$ErrorResults += "Possible internal memory pressure run: Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Process Memory'"
+			}
+			if ((( $SysMemResults | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result | Measure-Object).Count -gt 1 ) {
+				$ErrorResults += "Multiple NUMA count run: Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'SQL Server NUMA Info'"
+			}
 
 			[PSCustomObject]@{
 				InstanceName	= $Instance
 				ConfigDiff		= $ConfigResults | Where-Object { $_.value -ne $_.value_in_use }
 				ConfigBack		= $ConfigResults | Where-Object { $_.name.Contains('backup') -AND 0 -ne $_.value }
+				MemoryPressure	= $MemoryPressure
+				NUMACount		= (( $SysMemResults | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result | Measure-Object).Count
 			}
 		}
-    }
+	}
 }
