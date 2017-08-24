@@ -1,4 +1,4 @@
-function Get-DbaDiagnosticAudit {
+function Test-DbaDiagnosticAudit {
 	<#
 		.SYNOPSIS
 			Outputs the Noun found on the server.
@@ -38,7 +38,6 @@ function Get-DbaDiagnosticAudit {
 			Returns basic information on all Nouns found on sqlserver2014a
 
     #>
-
     [CmdletBinding()]
 	param (
 		[parameter(Mandatory = $true, ValueFromPipeline = $true)]
@@ -49,26 +48,20 @@ function Get-DbaDiagnosticAudit {
 		[parameter(Mandatory = $false)]
 		[Alias("Credential")]
 		[PSCredential][System.Management.Automation.CredentialAttribute()]
-		$SqlCredential,
-
-		[parameter(Mandatory)]
-		[object[]]
-        $Database,
-
-		[object[]]
-        $ExcludeDatabase,
-
-		[switch]
-        $Silent
+		$SqlCredential
 	)
 
     process {
         foreach ($Instance in $SqlInstance) {
-			
+			$Results 		= Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values','Process Memory'
+			$ConfigResults	= ( $Results | Where-Object { $_.name -eq 'Configuration Values' } ).Result
+			$ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result  
 
-        }
-
+			[PSCustomObject]@{
+				InstanceName	= $Instance
+				ConfigDiff		= $ConfigResults | Where-Object { $_.value -ne $_.value_in_use }
+				ConfigBack		= $ConfigResults | Where-Object { $_.name.Contains('backup') -AND 0 -ne $_.value }
+			}
+		}
     }
-
-
 }

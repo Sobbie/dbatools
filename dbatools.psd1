@@ -343,7 +343,9 @@
 		'Get-DbaOperatingSystem',
 		'Install-DbaMaintenanceSolution',
 		'Get-DbaComputerSystem',
-		'Get-DbaTraceFlag'
+		'Get-DbaTraceFlag',
+		'Get-DbaVersionAudit',
+		'Test-DbaDiagnosticAudit'
 	)
 	
 	# Cmdlets to export from this module
