@@ -1,5 +1,5 @@
 function Test-DbaDiagnosticAudit {
-		<#
+    <#
 		.SYNOPSIS
 			Outputs the Noun found on the server.
 
@@ -39,42 +39,79 @@ function Test-DbaDiagnosticAudit {
 
     #>
     [CmdletBinding()]
-	param (
-		[parameter(Mandatory = $true, ValueFromPipeline = $true)]
-		[Alias("ServerInstance", "SqlServer")]
-		[DbaInstanceParameter[]]
+    param (
+        [parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [Alias("ServerInstance", "SqlServer")]
+        [DbaInstanceParameter[]]
         $SqlInstance,
 
-		[parameter(Mandatory = $false)]
-		[Alias("Credential")]
-		[PSCredential][System.Management.Automation.CredentialAttribute()]
-		$SqlCredential
-	)
+        [parameter(Mandatory = $false)]
+        [Alias("Credential")]
+        [PSCredential][System.Management.Automation.CredentialAttribute()]
+        $SqlCredential
+    )
 
-	PROCESS {
-		$ErrorResults = @()
-		foreach ($Instance in $SqlInstance) {
-			
-			$Results 		= Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values','Process Memory','SQL Server NUMA Info','System Memory'
-			$ConfigResults	= ( $Results | Where-Object { $_.name -eq 'Configuration Values' } ).Result
-			$ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result
-			$SysMemResults	= ( $Results | Where-Object { $_.Name -eq 'System Memory' } ).Result
+    PROCESS {
+        $ErrorResults = @()
+        foreach ($Instance in $SqlInstance) {
+            $SysErrors = @()
+            $TempdbResults	= Test-DbaTempDbConfiguration $Instance
+            $Results = Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values', 'Process Memory', 'SQL Server NUMA Info', 'System Memory'
+            $ConfigResults	= ( $Results | Where-Object { $_.name -eq 'Configuration Values' } ).Result
+            $ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result
+            $SysMemResults	= ( $Results | Where-Object { $_.Name -eq 'System Memory' } ).Result
+            $NUMAInfoResults = ( $Results | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result 
 
-			If ( $ProcResults.large_page_allocations_kb -gt 0 -OR $ProcResults.locked_page_allocations_kb -gt 0 ) {
-				$MemoryPressure = $TRUE
-				$ErrorResults += "Possible internal memory pressure run: Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Process Memory'"
-			}
-			if ((( $SysMemResults | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result | Measure-Object).Count -gt 1 ) {
-				$ErrorResults += "Multiple NUMA count run: Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'SQL Server NUMA Info'"
-			}
-
-			[PSCustomObject]@{
-				InstanceName	= $Instance
-				ConfigDiff		= $ConfigResults | Where-Object { $_.value -ne $_.value_in_use }
-				ConfigBack		= $ConfigResults | Where-Object { $_.name.Contains('backup') -AND 0 -ne $_.value }
-				MemoryPressure	= $MemoryPressure
-				NUMACount		= (( $SysMemResults | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result | Measure-Object).Count
-			}
-		}
-	}
+            if ($TempdbResults) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "TempDB Configuration"
+                    Error       = $TempdbResults
+                    Check       = "Test-DbaTempDbConfiguration $Instance"       
+                }
+            }
+            if ( $ProcResults.large_page_allocations_kb -gt 0 -OR $ProcResults.locked_page_allocations_kb -gt 0 ) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "Internal Memory Pressure"
+                    Error       = [PSCustomObject]@{ large_page_allocations_kb = $ProcResults.large_page_allocations_kb; locked_page_allocations_kb = $ProcResults.locked_page_allocations_kb }
+                    Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Process Memory'"  
+                }
+            }
+            if ((( $NUMAInfoResults | Where-Object { $_.Name -eq 'SQL Server NUMA Info' } ).Result | Measure-Object).Count -gt 1 ) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "Multiple NUMA count"
+                    Error       = $NUMAInfoResults
+                    Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'SQL Server NUMA Info'"
+                }
+            }
+            if ( $ConfigResults | Where-Object { $_.value -ne $_.value_in_use } ) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "Running Configuration does not match Configuration"
+                    Error       = $ConfigResults | Where-Object { $_.value -ne $_.value_in_use }
+                    Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values'"
+                }
+            }
+            if ( $Mem = Get-DbaMaxMemory $instance | Where-Object { $_.SqlMaxMB -gt $_.TotalMB } ) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "Max Memory Configuration"
+                    Error       = $Mem
+                    Check       = "Get-DbaMaxMemory $instance"
+                }
+            }
+            if ( !$SysMemResults.'System Memory State'.Contains('Available physical memory is high') ) {
+                $SysErrors += [PSCustomObject]@{
+                    Instance    = $Instance
+                    ErrorType   = "External Memroy Pressure"
+                    Error       = $SysMemResults
+                    Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'System Memory'"
+                }
+            }
+        }
+        Return $ErrorResults
+    }
 }
+
