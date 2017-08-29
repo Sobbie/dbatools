@@ -52,10 +52,9 @@ function Test-DbaDiagnosticAudit {
     )
 
     PROCESS {
-        $ErrorResults = @()
         foreach ($Instance in $SqlInstance) {
             $SysErrors = @()
-            $TempdbResults	= Test-DbaTempDbConfiguration $Instance
+            $TempdbResults	= Test-DbaTempDbConfiguration $Instance -Silent
             $Results = Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values', 'Process Memory', 'SQL Server NUMA Info', 'System Memory'
             $ConfigResults	= ( $Results | Where-Object { $_.name -eq 'Configuration Values' } ).Result
             $ProcResults	= ( $Results | Where-Object { $_.Name -eq 'Process Memory' } ).Result
@@ -86,11 +85,11 @@ function Test-DbaDiagnosticAudit {
                     Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'SQL Server NUMA Info'"
                 }
             }
-            if ( $ConfigResults | Where-Object { $_.value -ne $_.value_in_use } ) {
+            if ( $ConfigResults | Where-Object { $_.value -ne $_.value_in_use -And $_.Name -ne 'min server memory' } ) {
                 $SysErrors += [PSCustomObject]@{
                     Instance    = $Instance
-                    ErrorType   = "Running Configuration does not match Configuration"
-                    Error       = $ConfigResults | Where-Object { $_.value -ne $_.value_in_use }
+                    ErrorType   = "Running Config does not match Config"
+                    Error       = $ConfigResults | Where-Object { $_.value -ne $_.value_in_use -And $_.Name -ne 'min server memory' }
                     Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'Configuration Values'"
                 }
             }
@@ -98,7 +97,7 @@ function Test-DbaDiagnosticAudit {
                 $SysErrors += [PSCustomObject]@{
                     Instance    = $Instance
                     ErrorType   = "Max Memory Configuration"
-                    Error       = $Mem
+                    Error       = ($Mem | Select-Object -ExpandProperty notes) -Join ';'
                     Check       = "Get-DbaMaxMemory $instance"
                 }
             }
@@ -110,8 +109,8 @@ function Test-DbaDiagnosticAudit {
                     Check       = "Invoke-DbaDiagnosticQuery -SqlInstance $Instance -QueryName 'System Memory'"
                 }
             }
+            $SysErrors
         }
-        Return $ErrorResults
     }
 }
 
